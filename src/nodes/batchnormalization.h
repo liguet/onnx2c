@@ -70,8 +70,9 @@ class BatchNormalization : public Node {
 		const Tensor *input = get_input_tensor(0);
 		const Tensor *scale = get_input_tensor(1);
 		const Tensor *bias  = get_input_tensor(2);
-		int batch_size =input->data_dim[0]; 
-		int num_chan =input->data_dim[1]; 
+               bool has_batch = input->rank() == 3 ? false : true;
+               int batch_size = has_batch ? input->data_dim[0] : 1;
+               int num_chan = has_batch ? input->data_dim[1] : input->data_dim[0];
 		std::string type = input->data_type_str();
 
 		dst << "\t/* BatchNormalization" << std::endl;
@@ -82,20 +83,22 @@ class BatchNormalization : public Node {
 		if( sqrt_var_offline  == false)
 			INDT_1 << "float epsilon = " << epsilon << ";" <<std::endl;
 
-		dst<<"\t" << "for( int32_t b=0; b<" << batch_size << "; b++ ) {" << std::endl;
-		dst<<"\t" << "for( int32_t c=0; c<" << num_chan << "; c++ ) {" << std::endl;
+               if( has_batch )
+                       dst<<"\t" << "for( int32_t b=0; b<" << batch_size << "; b++ ) {" << std::endl;
+               dst<<"\t" << "for( int32_t c=0; c<" << num_chan << "; c++ ) {" << std::endl;
 
 		// create the indexing string for picking out an element in input/output
-		std::string idxs = "[b][c]";
-		for( unsigned i = 2; i<input->data_dim.size(); i++)
-			idxs += "[i" + std::to_string(i) + "]";
+               std::string idxs = has_batch ? "[b][c]" : "[c]";
+               unsigned start = has_batch ? 2 : 1;
+               for( unsigned i = start; i<input->data_dim.size(); i++)
+                       idxs += "[i" + std::to_string(i) + "]";
 
 
 		// Loop over data dimensions
-		for( unsigned i = 2; i<input->data_dim.size(); i++) {
-			std::string idx = "i" + std::to_string(i);
+               for( unsigned i = start; i<input->data_dim.size(); i++) {
+                       std::string idx = "i" + std::to_string(i);
 			dst << "\t" << "for( uint32_t " << idx << "=0; ";
-			dst <<               idx << "<" << input->data_dim[i] << "; ";
+                        dst <<               idx << "<" << input->data_dim[i] << "; ";
 			dst <<               idx <<"++ ) {" << std::endl;
 		}
 
@@ -113,11 +116,12 @@ class BatchNormalization : public Node {
 		    dst << " + bias[c]";
 		dst << ";" << std::endl;
 
-		for( unsigned i = 2; i<input->data_dim.size(); i++)
-			dst << "\t}" << std::endl;
+                for( unsigned i = start; i<input->data_dim.size(); i++)
+                        dst << "\t}" << std::endl;
 
-		dst<<"\t" << "}" << std::endl;
-		dst<<"\t" << "}" << std::endl;
+                dst<<"\t" << "}" << std::endl;
+                if( has_batch )
+                        dst<<"\t" << "}" << std::endl;
 	}
 
 	// TODO: this could be useful elsewhere too

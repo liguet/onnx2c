@@ -8,26 +8,29 @@ class GlobalMaxPool : public Node {
 
 	virtual void print(std::ostream &dst) const override
 	{
-		const Tensor *X=get_input_tensor(0);
-		int batch_size = X->data_dim[0];
-		int num_channels = X->data_dim[1];
+               const Tensor *X=get_input_tensor(0);
+               bool has_batch = X->rank() == 3 ? false : true;
+               int batch_size = has_batch ? X->data_dim[0] : 1;
+               int num_channels = has_batch ? X->data_dim[1] : X->data_dim[0];
 
 		dst << "\t/* GlobalMaxPool */" << std::endl;
-		dst << "\tfor( int32_t b=0; b<" << batch_size << "; b++ ) {" << std::endl;
-		dst << "\tfor( int32_t c=0; c<" << num_channels << "; c++ ) {" << std::endl;
+               if( has_batch )
+                       dst << "\tfor( int32_t b=0; b<" << batch_size << "; b++ ) {" << std::endl;
+               dst << "\tfor( int32_t c=0; c<" << num_channels << "; c++ ) {" << std::endl;
 
 		// Initialize max_value to a very small value
 		dst << "\t\tfloat max_value = -FLT_MIN;" << std::endl;
 
-		std::string in_idx_string = "input[b][c]";  // Start of input element access
-		std::string out_idx_string = "output[b][c]"; // Output tensor index
+               std::string in_idx_string = has_batch ? "input[b][c]" : "input[c]";
+               std::string out_idx_string = has_batch ? "output[b][c]" : "output[c]";
 
 		// Iterate over spatial dimensions
-		for( unsigned dim = 2; dim < X->data_dim.size(); dim ++ ) {
-			int dim_size = X->data_dim[dim];
-			std::string dim_var = "d" + std::to_string(dim-2);
-			in_idx_string += "[" + dim_var + "]";
-			out_idx_string += "[0]";
+               unsigned start = has_batch ? 2 : 1;
+               for( unsigned dim = start; dim < X->data_dim.size(); dim ++ ) {
+                       int dim_size = X->data_dim[dim];
+                       std::string dim_var = "d" + std::to_string(dim-start);
+                       in_idx_string += "[" + dim_var + "]";
+                       out_idx_string += "[0]";
 
 			dst << "\t\tfor( int32_t " << dim_var << " = 0; " 
 			    << dim_var << " < " << dim_size << "; " 
@@ -38,16 +41,17 @@ class GlobalMaxPool : public Node {
 		dst << "\t\t\tmax_value = MAX(max_value, " << in_idx_string << ");" << std::endl;
 
 		// Close loops for spatial dimensions
-		for( unsigned dim = 2; dim < X->data_dim.size(); dim ++ ) {
-			dst << "\t\t}" << std::endl;
-		}
+               for( unsigned dim = start; dim < X->data_dim.size(); dim ++ ) {
+                       dst << "\t\t}" << std::endl;
+               }
 
 		// Assign the max value to output
 		dst << "\t\t" << out_idx_string << " = max_value;" << std::endl;
 
 		// Close loop over batch and channel
-		dst << "\t}" << std::endl;
-		dst << "\t}" << std::endl;
+               dst << "\t}" << std::endl;
+               if( has_batch )
+                       dst << "\t}" << std::endl;
 	}
 
 	virtual void resolve(void) override
@@ -58,11 +62,13 @@ class GlobalMaxPool : public Node {
 			ERROR("Incorrect input for node"); 
 
 		/* Create output tensors */
-		Tensor *rv = new Tensor;
-		rv->data_dim.push_back(X->data_dim[0]); // Batch dimension
-		rv->data_dim.push_back(X->data_dim[1]); // Channel dimension
-		for( unsigned i=2; i<X->data_dim.size(); i++)
-			rv->data_dim.push_back(1);  // Reduce spatial dimensions to 1
+               Tensor *rv = new Tensor;
+               bool has_batch = X->rank() == 3 ? false : true;
+               rv->data_dim.push_back(has_batch ? X->data_dim[0] : 1);
+               rv->data_dim.push_back(has_batch ? X->data_dim[1] : X->data_dim[0]);
+               unsigned start = has_batch ? 2 : 1;
+               for( unsigned i=start; i<X->data_dim.size(); i++)
+                        rv->data_dim.push_back(1);  // Reduce spatial dimensions to 1
 		rv->data_type = X->data_type;
 		register_output(rv, "output");
 	}

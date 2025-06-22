@@ -164,9 +164,10 @@ void ConvTranspose::resolve_convtranspose_pads(void)
 
 std::vector<int> ConvTranspose::calculate_output_size(void)
 {
-	std::vector<int> shape;
-	shape.push_back(x->data_dim[0]); // batch
-	shape.push_back(w->data_dim[1] * group); // maps
+        std::vector<int> shape;
+        bool has_batch = x->rank() == kernel_shape.size() + 2;
+        shape.push_back(has_batch ? x->data_dim[0] : 1);
+        shape.push_back(w->data_dim[1] * group);
 	for( auto s : output_shape )
 		shape.push_back(s);
 	return shape;
@@ -259,15 +260,16 @@ void ConvTranspose::print_header_info_comment(std::ostream &dst) const
  */
 void ConvTranspose::print_calculation( std::ostream &dst) const
 {
-	unsigned n_data_dims = x->data_dim.size() -2;
-	unsigned batch_size = x->data_dim[0];
-	unsigned channels = x->data_dim[1];
+        unsigned n_data_dims = kernel_shape.size();
+        bool has_batch = x->rank() == n_data_dims + 2;
+        unsigned batch_size = has_batch ? x->data_dim[0] : 1;
+        unsigned channels = has_batch ? x->data_dim[1] : x->data_dim[0];
 	unsigned maps=y->data_dim[1];
 
 	// Create various indexing strings. This makes generating the loops much cleaner.
-	std::string x_idx = "[b][c]";
-	std::string w_idx = "[c][m]"; // TODO: in case of groups, change c to something else
-	std::string y_idx = "[b][m]";
+        std::string x_idx = has_batch? "[b][c]" : "[c]";
+        std::string w_idx = "[c][m]";
+        std::string y_idx = has_batch? "[b][m]" : "[m]";
 	for( unsigned i = 0; i<n_data_dims; i++) {
 	std::string i_str = std::to_string(i);
 		x_idx += "[i" + i_str + "]";
@@ -279,8 +281,9 @@ void ConvTranspose::print_calculation( std::ostream &dst) const
 	INDT_1 << "memset(y, 0," << y->data_num_elem()*y->data_elem_size() << ");" << std::endl << std::endl;
 
 	// Create the loops over batches and maps (output channels).
-	INDT_1 << "for( uint32_t b=0; b<" << batch_size << "; b++ ) {" << std::endl;
-	INDT_1 << "for( uint32_t m=0; m<" << maps << "; m++) {" << std::endl;
+        if( has_batch )
+                INDT_1 << "for( uint32_t b=0; b<" << batch_size << "; b++ ) {" << std::endl;
+        INDT_1 << "for( uint32_t m=0; m<" << maps << "; m++) {" << std::endl;
 
 	// loop inputs
 	for( unsigned i = 0; i<n_data_dims; i++) {
@@ -342,13 +345,15 @@ void ConvTranspose::print_calculation( std::ostream &dst) const
 		INDT_2 << "} /* o */" << std::endl;
 
 	// close loops over batches and output channels
-	INDT_1 << "} /* m */" << std::endl;
-	INDT_1 << "} /* b */" << std::endl;
+        INDT_1 << "} /* m */" << std::endl;
+        if( has_batch )
+                INDT_1 << "} /* b */" << std::endl;
     
     // YK: bias should be added only once
     if( b ) {
         // Create the loops over batches and maps (output channels).
-        INDT_1 << "for( uint32_t b=0; b<" << batch_size << "; b++ ) {" << std::endl;
+        if( has_batch )
+                INDT_1 << "for( uint32_t b=0; b<" << batch_size << "; b++ ) {" << std::endl;
         INDT_2 << "for( uint32_t m=0; m<" << maps << "; m++) {" << std::endl;
         for( unsigned i = 0; i<n_data_dims; i++) {
             std::string i_str = std::to_string(i);

@@ -71,16 +71,18 @@ class LRN : public Node {
 		INDT_1 << "   size:  " << size << std::endl;
 		INDT_1 << "*/" << std::endl;
 
-		INDT_1 << "int N = " << X->data_dim[0] << ";" << std::endl;
-		INDT_1 << "int C = " << X->data_dim[1] << ";" << std::endl;
+                bool has_batch = X->rank() == 3 ? false : true;
+                INDT_1 << "int N = " << (has_batch ? std::to_string(X->data_dim[0]) : "1") << ";" << std::endl;
+                INDT_1 << "int C = " << (has_batch ? std::to_string(X->data_dim[1]) : std::to_string(X->data_dim[0])) << ";" << std::endl;
 		INDT_1 << "float alpha = " << alpha << ";" << std::endl;
 		INDT_1 << "float beta = " << beta << ";" << std::endl;
 		INDT_1 << "float bias = " << bias << ";" << std::endl;
 		INDT_1 << "int size = " << size << ";" << std::endl;
 
 		// loop over batches and channels
-		INDT_1 << "for (unsigned n=0; n<N; n++) {" << std::endl;
-		INDT_1 << "for (unsigned c=0; c<C; c++) {" << std::endl;
+                if( has_batch )
+                        INDT_1 << "for (unsigned n=0; n<N; n++) {" << std::endl;
+                INDT_1 << "for (unsigned c=0; c<C; c++) {" << std::endl;
 
 		// loop over the data channels
 		std::string y_idx="";
@@ -108,8 +110,8 @@ class LRN : public Node {
 
 
 		// close loop over all dimensions
-		for( unsigned r=0; r< X->rank(); r++)
-			INDT_1 << "}" << std::endl;
+                for( unsigned r= has_batch?0:1; r< X->rank(); r++)
+                        INDT_1 << "}" << std::endl;
 	}
 };
 }
