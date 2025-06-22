@@ -49,3 +49,11 @@ void print_loops_over_dims(std::ostream &dst, const toC::Tensor *, std::string p
 // and the same for the loop closes
 void print_loop_closes_over_dims(std::ostream &dst, const toC::Tensor *t, unsigned indents);
 
+/* Helper functions to interpret tensors that may omit the batch dimension.
+ * num_spatial is the expected number of spatial dimensions for the operator.
+ * If the tensor's rank equals num_spatial + 1, the batch dimension is missing
+ * and is assumed to be 1. */
+unsigned tensor_batch_size(const toC::Tensor *t, unsigned num_spatial);
+unsigned tensor_channel_size(const toC::Tensor *t, unsigned num_spatial);
+unsigned tensor_spatial_dim(const toC::Tensor *t, unsigned num_spatial, unsigned idx);
+
