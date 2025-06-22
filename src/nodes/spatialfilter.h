@@ -35,8 +35,27 @@ class SpatialFilter : public Node {
 		else
 			return nullptr;
 	}
-	const Tensor* get_Y(void) const { return get_output_tensor(0); }
-	uint32_t get_numDataDim(void) const {return get_X()->rank() - 2; }
+       const Tensor* get_Y(void) const { return get_output_tensor(0); }
+       bool has_batch_dim(void) const {
+               unsigned nd = kernel_shape.size();
+               if( nd == 0 && get_W() )
+                       nd = get_W()->rank() - 2;
+               return get_X()->rank() == nd + 2;
+       }
+       uint32_t get_numDataDim(void) const {
+               if( kernel_shape.size() )
+                       return kernel_shape.size();
+               return has_batch_dim() ? get_X()->rank()-2 : get_X()->rank()-1;
+       }
+       unsigned input_batch(void) const {
+               return has_batch_dim() ? get_X()->data_dim[0] : 1;
+       }
+       unsigned input_channels(void) const {
+               return has_batch_dim() ? get_X()->data_dim[1] : get_X()->data_dim[0];
+       }
+       unsigned input_dim(unsigned idx) const {
+               return has_batch_dim() ? get_X()->data_dim[2+idx] : get_X()->data_dim[1+idx];
+       }
 
 	virtual void parseAttributes( onnx::NodeProto &node ) override {
 		for( const auto& a : node.attribute() ) {
@@ -106,14 +125,15 @@ class SpatialFilter : public Node {
 
 	virtual std::vector<int> resolve_output_size(void)
 	{
-		std::vector<int> rv;
-		unsigned num_data_dim = get_numDataDim();
-		rv.push_back(get_X()->data_dim[0]);//batch size
-		rv.push_back(get_W()->data_dim[0]);//"number of feature maps"
+               std::vector<int> rv;
+               unsigned num_data_dim = get_numDataDim();
+               rv.push_back(input_batch());
+               rv.push_back(get_W()->data_dim[0]);
 
-		for( unsigned dim=0, xdim=2;
-		     dim < num_data_dim;
-		     dim++, xdim++) {
+               unsigned x_start = has_batch_dim() ? 2 : 1;
+               for( unsigned dim=0, xdim=x_start;
+                    dim < num_data_dim;
+                    dim++, xdim++) {
 			int outdim;
 			// Not sure if the naming is correct. Here
 			// kernel: the (number of) weights of the filter
@@ -125,11 +145,11 @@ class SpatialFilter : public Node {
 			// From ONNX Operators.md:
 			// SAME_UPPER or SAME_LOWER mean pad the input so that the output spatial size match the input.
 			// "match" here means "is equal".
-			if( auto_pad == "SAME_UPPER" || auto_pad == "SAME_LOWER" )
-				outdim = get_X()->data_dim[xdim];
-			else if( auto_pad == "NOTSET" || auto_pad == "VALID") {
-				//padded input
-				int input_size = get_X()->data_dim[xdim] + pads[dim]+pads[dim+num_data_dim];
+                        if( auto_pad == "SAME_UPPER" || auto_pad == "SAME_LOWER" )
+                                outdim = input_dim(dim);
+                        else if( auto_pad == "NOTSET" || auto_pad == "VALID") {
+                                //padded input
+                                int input_size = input_dim(dim) + pads[dim]+pads[dim+num_data_dim];
 				// [ 0 1 2 3 4 5 6 7 8 9  ]
 				//                |kern=3|
 				// last output=7
@@ -195,32 +215,33 @@ class SpatialFilter : public Node {
 	virtual void print_output_cell_finalize(std::ostream &dst, const std::string &y_idx="") const = 0;
 	void print_loop_with_padding_checks(std::ostream &dst) const
 	{
-		unsigned n_data_dims = get_numDataDim();
-		unsigned batch_size = get_X()->data_dim[0];
-		unsigned channels = get_X()->data_dim[1];
-		unsigned maps=get_Y()->data_dim[1];
+               unsigned n_data_dims = get_numDataDim();
+               unsigned batch_size = input_batch();
+               unsigned channels = input_channels();
+               unsigned maps=get_Y()->data_dim[1];
 
 		/* Create various indexing strings. This makes generating the loops much cleaner,
 		 * and makes possible the code sharing in child classes. */
-		std::string x_idx = "[b][c]";
-		std::string in_kern_idxs = "[b][c]";
-		std::string y_idx = "[b][m]";
-		for( unsigned i = 0; i<n_data_dims; i++) {
-			std::string i_str = std::to_string(i);
-			x_idx += "[i" + i_str + "]";
-			y_idx += "[o" + i_str + "]";
-			in_kern_idxs += "[ii" + i_str + "]";
-		}
+               std::string x_idx = has_batch_dim()? "[b][c]" : "[c]";
+               std::string in_kern_idxs = has_batch_dim()? "[b][c]" : "[c]";
+               std::string y_idx = has_batch_dim()? "[b][m]" : "[m]";
+               for( unsigned i = 0; i<n_data_dims; i++) {
+                       std::string i_str = std::to_string(i);
+                       x_idx += "[i" + i_str + "]";
+                       y_idx += "[o" + i_str + "]";
+                       in_kern_idxs += "[ii" + i_str + "]";
+               }
 
 		/* Create the loops over batches and channels.
 		 * In case this SpatialFilter has a weights input (w), this first loop is over
 		 * output channels (M). Othervise input channels==outputchannels, and it is named C
 		 */
-		INDT_1 << "for( uint32_t b=0; b<" << batch_size << "; b++ ) {" << std::endl;
-		if( options.quantize ) {
-			INDT_2 << "int32_t batch_min = INT32_MAX;" << std::endl;
-			INDT_2 << "int32_t batch_max = INT32_MIN;" << std::endl;
-		}
+               if( has_batch_dim() )
+                       INDT_1 << "for( uint32_t b=0; b<" << batch_size << "; b++ ) {" << std::endl;
+               if( options.quantize ) {
+                       INDT_2 << "int32_t batch_min = INT32_MAX;" << std::endl;
+                       INDT_2 << "int32_t batch_max = INT32_MIN;" << std::endl;
+               }
 		if( direct_channel_map() )
 			INDT_1 << "for( uint32_t m=0, c=0; m<" << maps << "; m++, c=m) {" << std::endl;
 		else if( get_W() && group > 1 ) {
@@ -263,10 +284,10 @@ class SpatialFilter : public Node {
 		// check for out-of-input reading (i.e. read a pad)
 		for( unsigned i = 0; i<n_data_dims; i++) {
 			std::string i_str = std::to_string(i);
-			INDT_4 <<  "int ii" << i_str << " = i" << i_str << "+k" << i_str <<" * " << dilations[i] <<";" << std::endl;
-			INDT_4 <<  "if( ii" << i_str << "<0) continue;" << std::endl;
-			INDT_4 <<  "if( ii" << i_str << ">=" << get_X()->data_dim[2+i] << ") continue;" << std::endl;
-		}
+                        INDT_4 <<  "int ii" << i_str << " = i" << i_str << "+k" << i_str <<" * " << dilations[i] <<";" << std::endl;
+                        INDT_4 <<  "if( ii" << i_str << "<0) continue;" << std::endl;
+                        INDT_4 <<  "if( ii" << i_str << ">=" << input_dim(i) << ") continue;" << std::endl;
+                }
 
 		print_output_cell_calc(dst, in_kern_idxs, "", y_idx);
 
@@ -284,11 +305,12 @@ class SpatialFilter : public Node {
 			INDT_2 << "} /* o */" << std::endl;
 
 		// close loops over batches and output channels
-		INDT_1 << "} /* m */" << std::endl;
-		if( direct_channel_map() == false && group > 1 )
-			INDT_2 << "} /* g */" << std::endl;
-		INDT_1 << "} /* b */" << std::endl;
-	}
+               INDT_1 << "} /* m */" << std::endl;
+               if( direct_channel_map() == false && group > 1 )
+                       INDT_2 << "} /* g */" << std::endl;
+               if( has_batch_dim() )
+                       INDT_1 << "} /* b */" << std::endl;
+               }
 };
 }
 
