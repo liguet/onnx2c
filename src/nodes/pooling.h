@@ -45,9 +45,9 @@ class Pooling : public SpatialFilter {
 	}
 	virtual std::vector<int> resolve_output_size(void) override
 	{
-		std::vector<int> rv;
-		rv.push_back(get_X()->data_dim[0]);//batch
-		rv.push_back(get_X()->data_dim[1]);//channel
+               std::vector<int> rv;
+               rv.push_back(input_batch());
+               rv.push_back(input_channels());
 	
 		unsigned data_dims = get_numDataDim();
 		std::vector<int> pad_shapes;
@@ -56,11 +56,12 @@ class Pooling : public SpatialFilter {
 		}
 		// Calculate output shape. Pads are now calculated
 		// for those auto_pad modes that need them.
-		for( unsigned i=2; i<get_X()->data_dim.size(); i++ ) {
-			int d;
-			int in_dim = get_X()->data_dim[i];
-			int kernel = kernel_shape[i-2];
-			int dilation = dilations.size()==0 ? 1 : dilations[i-2];
+               unsigned x_start = has_batch_dim() ? 2 : 1;
+               for( unsigned i=x_start; i<get_X()->data_dim.size(); i++ ) {
+                       int d;
+                       int in_dim = input_dim(i - x_start);
+                       int kernel = kernel_shape[i-2];
+                       int dilation = dilations.size()==0 ? 1 : dilations[i-2];
 			int stride = strides[i-2];
 			if ( auto_pad == "NOTSET" ) {
 				//int pad_sh = pad_shapes[i-2];
@@ -101,8 +102,8 @@ class Pooling : public SpatialFilter {
 			// The auto_pad attribute for AveragePool is deprecated anyway. Probably just for this confusion.
 			// This tries to be some sort of band-aid: assume the output size is the same as input size
 			// which is the usual(?) reason to use "same" padding on the network design level. 
-			int input_size = get_X()->data_dim[i+2];
-			int output_size = get_Y()->data_dim[i+2];
+                       int input_size = input_dim(i);
+                       int output_size = get_Y()->data_dim[i+2];
 			int pad_shape = (output_size - 1) * strides[i] + (( kernel_shape[i] -1) * dilations[i]+1) - input_size; 
 			pads[i] = pad_shape/2;
 			pads[i+data_dims] = pad_shape/2;

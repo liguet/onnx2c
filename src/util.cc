@@ -169,9 +169,30 @@ void print_loops_over_dims(std::ostream &dst, const toC::Tensor *t, std::string 
 }
 void print_loop_closes_over_dims(std::ostream &dst, const toC::Tensor *t, unsigned indents)
 {
-	for( unsigned dim=0; dim<t->rank(); dim++) {
-		for(unsigned i=0; i<indents; i++)
-			dst << "\t";
-		dst << "}"<< std::endl;
-	}
+        for( unsigned dim=0; dim<t->rank(); dim++) {
+                for(unsigned i=0; i<indents; i++)
+                        dst << "\t";
+                dst << "}"<< std::endl;
+        }
+}
+
+unsigned tensor_batch_size(const toC::Tensor *t, unsigned num_spatial)
+{
+        if( t->rank() == num_spatial + 1 )
+                return 1;
+        return t->data_dim[0];
+}
+
+unsigned tensor_channel_size(const toC::Tensor *t, unsigned num_spatial)
+{
+        if( t->rank() == num_spatial + 1 )
+                return t->data_dim[0];
+        return t->data_dim[1];
+}
+
+unsigned tensor_spatial_dim(const toC::Tensor *t, unsigned num_spatial, unsigned idx)
+{
+        if( t->rank() == num_spatial + 1 )
+                return t->data_dim[1 + idx];
+        return t->data_dim[2 + idx];
 }
